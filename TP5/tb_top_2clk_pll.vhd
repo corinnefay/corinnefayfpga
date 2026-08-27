@@ -1,0 +1,256 @@
+library ieee;
+use ieee.std_logic_1164.all;
+use ieee.numeric_std.all;
+
+entity tb_top_2clk_pll is
+end tb_top_2clk_pll;
+
+architecture behavioral of tb_top_2clk_pll is
+
+	signal resetn      : std_logic := '0';
+	signal resetn1      : std_logic := '0';
+	signal clk         : std_logic := '0';
+	signal clka        : std_logic := '0';
+	signal clkb        : std_logic := '0';
+	signal led0_r       : std_logic := '0';
+	signal led0_b       : std_logic := '0';
+	signal led0_g       : std_logic := '0';
+	signal led1_r       : std_logic := '0';
+	signal led1_b       : std_logic := '0';
+	signal led1_g       : std_logic := '0';
+	signal nb_fail1     : integer := 0;
+	signal nb_fail2     : integer := 0;
+	signal nb_fail3     : integer := 0;
+	-- Les constantes suivantes permette de definir la frequence de l'horloge 
+	constant hp : time := 4 ns;      --demi periode de 4ns
+	constant period : time := 2*hp;  --periode de 8ns, soit une frequence de 125MHz
+    constant hpa : time := 2 ns;      --demi periode de 2ns
+	constant perioda : time := 2*hpa;  --periode de 4ns, soit une frequence de 250MHz
+	constant hpb : time := 10 ns;      --demi periode de 10ns
+	constant periodb : time := 2*hpb;  --periode de 20ns, soit une frequence de 50MHz
+	constant cible : integer := 60;
+	-- definition d'une sequence de couleur pour les leds afin simplifier le test bench
+    type color_led_type is (rouge, bleu, vert);
+    type color_sequence_type is array (0 to 6) of color_led_type;
+    constant color_sequence : color_sequence_type := (
+        rouge,
+        bleu,
+        vert,
+        rouge,
+        bleu,
+        vert,
+        rouge
+       );    
+
+	component top_2clk_pll is
+    generic (
+        cible : integer := cible
+    );
+    port (
+		    clk   : in std_logic; 
+			resetn : in STD_LOGIC;
+			led0_r : out STD_LOGIC;
+			led0_g : out STD_LOGIC;
+			led0_b : out STD_LOGIC;
+			led1_r : out STD_LOGIC;
+			led1_g : out STD_LOGIC;
+			led1_b : out STD_LOGIC);
+	end component;
+
+	begin
+	dut: top_2clk_pll
+        port map (
+            clk => clk,
+            resetn => resetn,
+			led0_r => led0_r,
+			led0_g => led0_g,
+			led0_b => led0_b,
+			led1_r => led1_r,
+			led1_g => led1_g,
+			led1_b => led1_b
+            );
+		
+	--Simulation du signal d'horloge en continue
+	process
+    begin
+		wait for hp;
+		clk <= not clk;
+	end process;
+
+
+	process
+    begin   
+    -- reset de debut     
+       resetn <= '0';
+ 
+     -- le demarrage sera lance dans le process de led1 car c'est lui le plus lent 
+     -- les autres process attendent le resetn pour continuer
+        wait until rising_edge (resetn1);       
+        resetn <= '1';
+           
+    -- on attend un peu plus de 7 cycle de 10 clignotements de led0     
+ 	    wait for 72*2*cible*perioda;   
+    -- reset   
+       resetn <= '0';
+
+    -- le demarrage sera lance dans le process de led1 car c'est lui le plus lent 
+    -- les autres process attendent le resetn pour continuer
+        wait until rising_edge (resetn1);       
+        resetn <= '1';
+        
+        wait for 3*2*cible*perioda;     
+ 	      
+        nb_fail1 <= nb_fail1 + nb_fail2 + nb_fail3;
+        wait for 1ns;        
+        report " Nombre de test FAIL : " & integer'image(nb_fail1)  severity note; 
+        wait;
+	end process;
+    -- test sur led0
+	process
+        variable nb_fail2i     : integer := 0;
+        variable nb_allum_a    : integer := 0;
+    begin
+       wait for 2*cible*perioda +1ns;     
+       if led0_r ='0' and led0_b = '0' and led0_g = '0' then
+           report " PASS : TEST reset : led0 est eteinte OK" severity note;
+       else 
+            report " FAIL : TEST reset :led0 est eteinte KO " severity error;
+            nb_fail2 <= nb_fail2 + 1;
+       end if;	 
+        -- on attend la fin du reset 
+        wait until rising_edge (resetn); 
+        wait for 1ns; 
+        if led0_r ='0' and led0_b = '0' and led0_g = '0'  then
+            report " PASS : TEST demarrage : led0 est eteinte OK" severity note;
+        else 
+            report " FAIL : TEST demarrage : led0 est eteinte KO " severity error;
+            nb_fail2 <= nb_fail2 + 1;
+        end if;	
+        -- on attend le premier allumage de la led0 
+    	wait until rising_edge(led0_r) for 2*2*cible*perioda; 
+    	if led0_r = '0' then 
+            report " FAIL  LED0 ne s'allume pas au demarrage " severity note;
+            nb_fail2 <= nb_fail2+1;
+    	else 
+            wait for 1ns;
+            -- on affiche la couleur de la led0 tant que le resetn est a 1
+           while resetn = '1' loop
+                   if led0_r ='0' and led0_b = '1' and led0_g = '0' then
+                      report "                                   LED0 bleue  "   severity note;
+                    elsif led0_r ='0' and led0_b = '0' and led0_g = '1' then
+                      report "                                   LED0 verte "   severity note;
+                    elsif led0_r ='1' and led0_b = '0' and led0_g = '0' then
+                      report "                                    LED0 rouge  "  severity note;
+                    else
+                        report " FAIL  LED0 etteinte  "   severity note;
+                    end if;
+                    wait for 2*cible*perioda; 
+            end loop;         
+       end if;
+        -- on attend le prochain reset  
+      --wait until falling_edge (resetn);
+        wait for 1ns;     
+        if led0_r ='0' and led0_b = '0' and led0_g = '0' then
+           report " PASS : TEST reset : la led0 est eteinte OK" severity note;
+        else 
+            report " FAIL : TEST reset : la led0 est eteinte KO " severity error;
+            nb_fail2 <= nb_fail2 + 1;
+        end if;		
+        -- on attend le prochain demarrage
+    	wait until rising_edge(led0_r) for 2*2*cible*perioda; 
+        wait for 1ns; 
+        if led0_r ='0' and led0_b = '0' and led0_g = '0' then
+            report " PASS : TEST demarrage : la led0 est eteinte OK" severity note;
+        else 
+            report " FAIL : TEST demarrage : la led0 est eteinte KO " severity error;
+            nb_fail2 <= nb_fail2 + 1;
+        end if;	
+        wait for perioda ; 
+        if led0_r ='1' and led0_b = '0' and led0_g = '0' then
+            report " PASS : TEST demarrage : la led0 est rouge apres 1 periode clka OK" severity note;
+        else 
+            report " FAIL : TEST demarrage : la led0 est rouge apres 1 periode clka KO " severity error;
+            nb_fail2 <= nb_fail2 + 1;
+        end if;	      
+        wait;
+    end process;
+    
+	-- test sur led1
+	process
+        variable nb_fail3i    : integer := 0;
+        variable nb_allum_b   : integer := 0;
+    begin
+        wait for 2*cible*periodb +1ns;     
+        if led1_r ='0' and led1_b = '0' and led1_g = '0' then
+            report " PASS : TEST reset : led1 est eteinte OK" severity note;
+        else 
+            report " FAIL : TEST reset :led1 est eteinte KO " severity error;
+            nb_fail3 <= nb_fail3 + 1;
+        end if;	 
+        wait for periodb +1ns;     
+        -- le reset est lance ici car c'est le proces le plus lent. 
+        -- les autres process attendent le resetn pour continuer
+        resetn1 <= '1';
+        wait for 1ns; 
+        resetn1 <= '0';
+        
+        if led1_r ='0' and led1_b = '0' and led1_g = '0'  then
+            report " PASS : TEST demarrage : led1 est eteinte OK" severity note;
+        else 
+            report " FAIL : TEST demarrage : led1 est eteinte KO " severity error;
+            nb_fail3 <= nb_fail3 + 1;
+        end if;	
+        -- on attend le premier allumage de la led1 
+    	wait until rising_edge(led1_r) for 2*2*cible*periodb; 
+    	if led1_r = '0' then 
+            report " FAIL  LED1 ne s'allume pas au demarrage " severity note;
+            nb_fail3 <= nb_fail3+1;
+    	else 
+            wait for 1ns;
+           -- on affiche la couleur de la led1 tant que le resetn est a 1
+           while resetn = '1' loop
+                   if led1_r ='0' and led1_b = '1' and led1_g = '0' then
+                      report " LED1 bleue  "   severity note;
+                    elsif led1_r ='0' and led1_b = '0' and led1_g = '1' then
+                      report " LED1 verte "   severity note;
+                    elsif led1_r ='1' and led1_b = '0' and led1_g = '0' then
+                      report " LED1 rouge  "  severity note;
+                    else
+                        report " FAIL  LED1 eteinte  "   severity note;
+                    end if;
+                    wait for 2*cible*periodb; 
+                    --exit when falling_edge (resetn);
+           end loop;
+
+        end if;
+        -- on attend le prochain reset  
+        --wait until falling_edge (resetn);
+        wait for 1ns;     
+        if led1_r ='0' and led1_b = '0' and led1_g = '0' then
+           report " PASS : TEST reset : la led1 est eteinte OK" severity note;
+        else 
+            report " FAIL : TEST reset : la led1 est eteinte KO " severity error;
+            nb_fail3 <= nb_fail3 + 1;
+        end if;		
+        -- le reset est lance ici car c'est le proces le plus lent. 
+        -- les autres process attendent le resetn pour continuer
+        wait for 3*cible*periodb;
+        resetn1 <= '1';
+        wait for 1ns; 
+        resetn1 <= '0';
+        if led1_r ='0' and led1_b = '0' and led1_g = '0'  then
+            report " PASS : TEST demarrage : la led1 est eteinte OK" severity note;
+        else 
+            report " FAIL : TEST demarrage : la led1 est eteinte KO " severity error;
+            nb_fail3 <= nb_fail3 + 1;
+        end if;	
+    	wait until rising_edge(led1_r) for 2*2*cible*periodb; 
+        if led1_r ='1' and led1_b = '0' and led1_g = '0'  then
+            report " PASS : TEST demarrage : la led1 est rouge apres 1 periode clkb OK" severity note;
+        else 
+            report " FAIL : TEST demarrage : la led1 est rouge apres 1 periode clkb KO " severity error;
+            nb_fail3 <= nb_fail3 + 1;
+        end if;	   
+        wait;
+    end process;   
+end behavioral;
